@@ -90,6 +90,8 @@ public:
         glfwSetWindowUserPointer(window, this);
         glfwSetScrollCallback(window, impl_scroll_call);
         glfwSetMouseButtonCallback(window, impl_mouse_button_call);
+
+        glEnable(GL_DEPTH_TEST);
     }
 
     OpenGL(const OpenGL& other) = delete;
@@ -117,7 +119,7 @@ public:
 
             // Fill background with solid color
             glClearColor(0.30f, 0.55f, 0.60f, 1.00f);
-            glClear(GL_COLOR_BUFFER_BIT);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             
             call();
 
@@ -140,7 +142,21 @@ public:
 
         return double(display_w) / display_h;
     }
-    
+
+    int get_width() const {
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+
+        return display_w;
+    }
+
+    int get_height() const {
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+
+        return display_h;
+    }
+
     void get_mouse_coordinates(double& x, double& y) {
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
@@ -159,7 +175,7 @@ public:
     }
 
     template <typename Call>
-    void set_on_scrool(Call call) {
+    void set_on_scroll(Call call) {
         on_scroll = call;
     }
 
@@ -187,7 +203,7 @@ public:
         unsigned char* data = stbi_load(path, &width, &height, &comps, STBI_rgb);
 
         if (not data)
-            throw std::runtime_error("failed to load");
+            throw std::runtime_error(std::string("failed to load texture ") + path);
         
         glGenTextures(1, &texture);
         glBindTexture(GL_TEXTURE_2D, texture);
@@ -196,14 +212,6 @@ public:
         glGenerateMipmap(GL_TEXTURE_2D);
         
         stbi_image_free(data);
-    }
-
-    int get_width() const {
-        return width;
-    }
-
-    int get_height() const {
-        return height;
     }
 
     GLuint get() const {
@@ -226,137 +234,49 @@ public:
     }
 };
 
-/*
-  class Triangle {
-  private:
-  GLuint vbo, vao, ebo;
+class CubemapTexture {
+private:
+    GLuint texture;
 
-  public:
-  shader_t triangle_shader;
-    
-  public:
-  Triangle(): triangle_shader("simple-shader.vs", "simple-shader.fs") {
-  // create the triangle
-  float triangle_vertices[] = {
-  0.0f, 0.25f, 0.0f,	// position vertex 1
-  1.0f, 0.0f, 0.0f,	 // color vertex 1
+public:
+    CubemapTexture(std::vector<std::string> faces) {
+        stbi_set_flip_vertically_on_load(false);
 
-  0.25f, -0.25f, 0.0f,  // position vertex 1
-  0.0f, 1.0f, 0.0f,	 // color vertex 1
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
 
-  -0.25f, -0.25f, 0.0f, // position vertex 1
-  0.0f, 0.0f, 1.0f,	 // color vertex 1
-  };
-  unsigned int triangle_indices[] = {
-  0, 1, 2 };
-        
-  glGenVertexArrays(1, &vao);
-  glGenBuffers(1, &vbo);
-  glGenBuffers(1, &ebo);
-        
-  glBindVertexArray(vao);
-  glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        
-  glBufferData(GL_ARRAY_BUFFER, sizeof(triangle_vertices), triangle_vertices, GL_STATIC_DRAW);
+        for (int i = 0; i < 6; i++) {
+            int width, height, nrChannels;
 
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-        
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(triangle_indices), triangle_indices, GL_STATIC_DRAW);
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
+            unsigned char *data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-  }
+            if (not data)
+                throw std::runtime_error(std::string("failed to load cubemap texture ") + faces[i].c_str());
 
-  void draw() {
-  // Bind triangle shader
-  triangle_shader.use();
-  // Bind vertex array = buffers + indices
-  glBindVertexArray(vao);
-  // Execute draw call
-  glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, 0);
-  glBindVertexArray(0);        
-  }
-  };
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
 
-  class Fractal {
-  private:
-  GLuint vbo, ebo, vao;
+    }
 
-  shader_t fractal_shader;
+    void bind(GLuint slot = GL_TEXTURE0) {
+        glActiveTexture(slot);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, texture);
 
-  float R = 2, scale = 1, aspect_ratio = 1;
-  float coordinates[2] = {0, 0};
-  float cvec[2] = {0, 0};
-  int num_it = 1;
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    }
 
-  const Texture& texture;
-    
-  public:
-  Fractal(const Texture& texture): fractal_shader("frac-shader.vs", "frac-shader.fs"), texture(texture) {
-  float vertices[] = {
-  -1, -1, 0, // left-btm
-  -1, +1, 0,
-  +1, +1, 0,
-  +1, -1, 0
-  };
+    static void unbind(GLuint slot=GL_TEXTURE0) {
+        glActiveTexture(slot);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    }
+};
 
-  unsigned int indices[] = {0, 1, 2, 2, 3, 0};
-        
-  glGenVertexArrays(1, &vao);
-  glGenBuffers(1, &vbo);
-  glGenBuffers(1, &ebo);
-        
-  glBindVertexArray(vao);
-  glBindBuffer(GL_ARRAY_BUFFER, vbo);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-        
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
-  glEnableVertexAttribArray(0);
 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-  }
-
-  void draw() {
-  fractal_shader.set_uniform("u_translation", coordinates[0], coordinates[1]);
-  fractal_shader.set_uniform("u_scale", scale);
-  fractal_shader.set_uniform("u_aspect_ratio", aspect_ratio);
-
-  fractal_shader.set_uniform("u_cvec", cvec[0], cvec[1]);
-  fractal_shader.set_uniform("u_R", R);
-  fractal_shader.set_uniform("u_num_it", num_it);
-
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, texture.get());
-        
-  fractal_shader.use();
-  glBindVertexArray(vao);
-  glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-  glBindVertexArray(0);
-  }
-
-  void setPosition(float x0, float y0, float scale, float aspect_ratio) {
-  coordinates[0] = x0;
-  coordinates[1] = y0;
-
-  this->scale = scale;
-  this->aspect_ratio = aspect_ratio;
-  }
-
-  void setParameters(float c_real, float c_imag, float r, int num_it) {
-  cvec[0] = c_real;
-  cvec[1] = c_imag;
-  R = r;
-  this->num_it = num_it;
-  }
-  };
-*/
 
 class ModelBase {
 protected:
@@ -374,64 +294,89 @@ public:
     }
 };
 
-void create_triangle(GLuint &vbo, GLuint &vao, GLuint &ebo) {
-    // create the triangle
-    float triangle_vertices[] = {
-        -1, 1, 0,	// position vertex 1
-        0, 1, 0.0f,	 // color vertex 1
-
-        -1, -1, 0.0f,  // position vertex 1
-        0, 0, 0.0f,	 // color vertex 1
-
-        1, -1, 0.0f, // position vertex 1
-        1, 0, 0,	 // color vertex 1
-
-        1, 1, 0.0f, // position vertex 1
-        1, 1, 0,	 // color vertex 1
-    };
-    unsigned int triangle_indices[] = {
-        0, 1, 2, 0, 3, 2 };
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glGenBuffers(1, &ebo);
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(triangle_vertices), triangle_vertices, GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(triangle_indices), triangle_indices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-}
-
 class ObjModel: public ModelBase {
 private:
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
-    shader_t shader = std::move(shader_t("simple-shader.fs", "simple-shader.vs"));
+    shader_t shader = std::move(shader_t("simple-shader.vs", "simple-shader.fs"));
     Texture texture = std::move(Texture("checkers.jpg"));
+    GLuint vbo, vao, ebo;
+    int num_triangles = 0;
 
     void init_opengl_objects() {
-        
+        std::vector<float> vertices;
+        std::vector<unsigned int> triangle_indices;
+
+        assert(attrib.vertices.size() % 3 == 0);
+        for (int i = 0; i < attrib.vertices.size(); i += 3) {
+            vertices.push_back(attrib.vertices[i]);
+            vertices.push_back(attrib.vertices[i+1]);
+            vertices.push_back(attrib.vertices[i+2]);
+        }
+
+        for (int s = 0; s < shapes.size(); ++s) {
+            assert(shapes[s].mesh.indices.size() % 3 == 0);
+
+            for (int v = 0; v < shapes[s].mesh.indices.size(); ++v) {
+                tinyobj::index_t idx = shapes[s].mesh.indices[v];
+
+                triangle_indices.push_back(idx.vertex_index);
+            }
+        }
+
+        for (int tp = 0; tp < 3; ++tp) {
+            float mn = 1e9, mx = -1e9;
+
+            for (int i = tp; i < vertices.size(); i += 3) {
+                mn = std::min(mn, vertices[i]);
+                mx = std::max(mx, vertices[i]);
+            }
+
+            float mid = mn + (mx - mn) / 2;
+            for (int i = tp; i < vertices.size(); i += 3) {
+                vertices[i] -= mid;
+            }
+        }
+
+        num_triangles = triangle_indices.size() / 3;
+
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        glGenBuffers(1, &ebo);
+
+        glBindVertexArray(vao);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(triangle_indices[0]) * triangle_indices.size(), triangle_indices.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(0);
+        //glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+        //glEnableVertexAttribArray(1);
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
     }
     
 protected:
     virtual void render_mvp(glm::mat4 mvp) {
         shader.use();
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
-
         shader.set_uniform("u_tex", int(0));
         texture.bind();
+
+        glBindVertexArray(vao);
+        glDrawElements(GL_TRIANGLES, num_triangles * 3, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
 
         texture.unbind();
     }
 
 public:
-    ObjModel(const char* filename) {        
+    ObjModel(const char* filename) {
         std::string err;
         bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename);
         
@@ -447,75 +392,136 @@ public:
     }
 };
 
+class Skybox: public ModelBase {
+private:
+    GLuint vbo, ebo, vao;
+
+    shader_t shader;
+    CubemapTexture& cubemap;
+    int num_triangles;
+
+public:
+    Skybox(CubemapTexture &cubemap) : shader("skybox-shader.vs", "skybox-shader.fs"), cubemap(cubemap) {
+        float vertices[] = {
+                -1, -1, -1,
+                -1, -1, +1,
+
+                -1, +1, -1,
+                -1, +1, +1,
+
+                +1, -1, -1,
+                +1, -1, +1,
+
+                +1, +1, -1,
+                +1, +1, +1,
+        };
+
+#define QUAD(a, b, d, c) a,b,c,c,d,a
+        unsigned int indices[] = {QUAD(0,1,2,3), QUAD(4,5,6,7),
+                                  QUAD(0,1,4,5), QUAD(2,3,6,7),
+                                  QUAD(0,2,4,6), QUAD(1,3,5,7)};
+#undef QUAD
+
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        glGenBuffers(1, &ebo);
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+        num_triangles = sizeof(indices) / sizeof(indices[0]) / 3;
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *) 0);
+        glEnableVertexAttribArray(0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+    }
+protected:
+    virtual void render_mvp(glm::mat4 mvp) {
+        shader.use();
+        shader.set_uniform("u_mvp", glm::value_ptr(mvp));
+        shader.set_uniform("u_tex", int(0));
+        cubemap.bind();
+
+        glBindVertexArray(vao);
+        glDrawElements(GL_TRIANGLES, num_triangles * 3, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        cubemap.unbind();
+    }
+};
+
+
 int main(int, char **) {
     OpenGL opengl("Task2");
-
-    Texture texture("lena.jpg");
-
-    // create our geometries
-    GLuint vbo, vao, ebo;
-    create_triangle(vbo, vao, ebo);
-
-    // init shader
-    // shader_t triangle_shader("simple-shader.vs", "simple-shader.fs");
-
-    //auto const start_time = std::chrono::steady_clock::now();
-
     ObjModel model("cube.obj");
-        
+    CubemapTexture cubemap(std::vector<std::string> {"skybox/right.jpg",
+                                                     "skybox/left.jpg",
+                                                     "skybox/top.jpg",
+                                                     "skybox/bottom.jpg",
+                                                     "skybox/front.jpg",
+                                                     "skybox/back.jpg"});
+
+    Skybox skybox(cubemap);
+
+    double ang_xz = 0, ang_y = 0, distance = 6;
+
+    bool is_dragged = false;
+    double mouse_x, mouse_y;
+
+    opengl.set_on_mouse_button([&](int button, int action, int mods) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            is_dragged = true;
+
+            opengl.get_mouse_coordinates(mouse_x, mouse_y);
+        }
+
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+            is_dragged = false;
+        }
+    });
+
+    auto process_drag = [&]() {
+        if (not is_dragged)
+            return;
+
+        auto oldx = mouse_x;
+        auto oldy = mouse_y;
+        opengl.get_mouse_coordinates(mouse_x, mouse_y);
+
+        double factor = 2000 / std::min(opengl.get_width(), opengl.get_height());
+
+        ang_xz -= factor * (mouse_x - oldx);
+        ang_y += factor * (mouse_y - oldy);
+
+        ang_y = std::min(ang_y, glm::pi<double>() * 0.35);
+        ang_y = std::max(ang_y, -glm::pi<double>() * 0.35);
+    };
+
+    opengl.set_on_scroll([&](double xoffset, double yoffset) {
+        distance -= yoffset / 3;
+        distance = std::min(distance, 10.);
+        distance = std::max(distance, 3.);
+    });
+
     opengl.main_loop([&]() {
-        auto view = glm::lookAt<float>(glm::vec3(0, 0, -1), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+        process_drag();
+
+        auto view = glm::translate<float>(glm::vec3 {0, 0, -distance})
+                * glm::rotate<float>(glm::mat4(1), -ang_xz, glm::vec3 {0, 1, 0})
+                * glm::rotate<float>(glm::mat4(1), -ang_y, glm::vec3 {1, 0, 0});
         auto projection = glm::perspective<float>(90, opengl.width_over_height(), 0.1, 100);
+        auto vp = projection * view;
 
-        model.render(projection * view);
-        
-        /*
-        // Gui start new frame
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        glDisable(GL_DEPTH_TEST);
+        skybox.render(vp);
+        glEnable(GL_DEPTH_TEST);
 
-        // GUI
-        ImGui::Begin("Triangle Position/Color");
-        static float rotation = 0.0;
-        ImGui::SliderFloat("rotation", &rotation, 0, 2 * glm::pi<float>());
-        static float translation[] = { 0.0, 0.0 };
-        ImGui::SliderFloat2("position", translation, -1.0, 1.0);
-        static float color[4] = { 1.0f,1.0f,1.0f,1.0f };
-        ImGui::ColorEdit3("color", color);
-        ImGui::End();
-
-        // Pass the parameters to the shader as uniforms
-        triangle_shader.set_uniform("u_rotation", rotation);
-        triangle_shader.set_uniform("u_translation", translation[0], translation[1]);
-        //float const time_from_start = (float)(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_time).count() / 1000.0);
-        //triangle_shader.set_uniform("u_time", time_from_start);
-        triangle_shader.set_uniform("u_color", color[0], color[1], color[2]);
-
-
-        auto model = glm::rotate(glm::mat4(1), glm::radians(rotation * 60), glm::vec3(0, 1, 0)) * glm::scale(glm::vec3(2, 2, 2));
-        auto view = glm::lookAt<float>(glm::vec3(0, 0, -1), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-        auto projection = glm::perspective<float>(90, opengl.width_over_height(), 0.1, 100);
-        auto mvp = projection * view * model;
-        triangle_shader.set_uniform("u_mvp", glm::value_ptr(mvp));
-        triangle_shader.set_uniform("u_tex", int(0));
-
-
-        // Bind triangle shader
-        triangle_shader.use();
-        texture.bind();
-        // Bind vertex array = buffers + indices
-        glBindVertexArray(vao);
-        // Execute draw call
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-
-        texture.unbind();
-        glBindVertexArray(0);
-        
-        ImGui::Render(); // Generate gui render commands
-        // Execute gui render commands using OpenGL backend
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        */
+        model.render(vp);
     });
 
     return 0;
