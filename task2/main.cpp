@@ -15,6 +15,7 @@
 // Math constant and routines for OpenGL interop
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -299,43 +300,58 @@ private:
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
-    shader_t shader = std::move(shader_t("simple-shader.vs", "simple-shader.fs"));
+
+    shader_t shader = std::move(shader_t("obj-shader.vs", "obj-shader.fs"));
     Texture texture = std::move(Texture("checkers.jpg"));
+    CubemapTexture skybox;
+    glm::vec3 camera;
+    float u_reflect = 0.4, u_refract = 0.2, u_refract_coeff = 0.7;
+
     GLuint vbo, vao, ebo;
     int num_triangles = 0;
 
     void init_opengl_objects() {
+        for (int tp = 0; tp < 3; ++tp) {
+            float mn = 1e9, mx = -1e9;
+
+            for (int i = tp; i < attrib.vertices.size(); i += 3) {
+                mn = std::min(mn, attrib.vertices[i]);
+                mx = std::max(mx, attrib.vertices[i]);
+            }
+
+            float mid = mn + (mx - mn) / 2;
+            for (int i = tp; i < attrib.vertices.size(); i += 3) {
+                attrib.vertices[i] -= mid;
+            }
+        }
+
         std::vector<float> vertices;
         std::vector<unsigned int> triangle_indices;
 
-        assert(attrib.vertices.size() % 3 == 0);
-        for (int i = 0; i < attrib.vertices.size(); i += 3) {
-            vertices.push_back(attrib.vertices[i]);
-            vertices.push_back(attrib.vertices[i+1]);
-            vertices.push_back(attrib.vertices[i+2]);
-        }
+        std::map<std::pair<int, int>, int> idmap;
+        auto get_vertex_id = [&](int vertex, int normal) {
+            if (not idmap.count(std::make_pair(vertex, normal))) {
+                int new_id = idmap.size();
+                idmap[std::make_pair(vertex, normal)] = new_id;
+
+                vertices.push_back(attrib.vertices[3 * vertex]);
+                vertices.push_back(attrib.vertices[3 * vertex + 1]);
+                vertices.push_back(attrib.vertices[3 * vertex + 2]);
+
+                vertices.push_back(attrib.normals[3 * normal]);
+                vertices.push_back(attrib.normals[3 * normal + 1]);
+                vertices.push_back(attrib.normals[3 * normal + 2]);
+            }
+
+            return idmap[std::make_pair(vertex, normal)];
+        };
 
         for (int s = 0; s < shapes.size(); ++s) {
             assert(shapes[s].mesh.indices.size() % 3 == 0);
 
             for (int v = 0; v < shapes[s].mesh.indices.size(); ++v) {
                 tinyobj::index_t idx = shapes[s].mesh.indices[v];
-
-                triangle_indices.push_back(idx.vertex_index);
-            }
-        }
-
-        for (int tp = 0; tp < 3; ++tp) {
-            float mn = 1e9, mx = -1e9;
-
-            for (int i = tp; i < vertices.size(); i += 3) {
-                mn = std::min(mn, vertices[i]);
-                mx = std::max(mx, vertices[i]);
-            }
-
-            float mid = mn + (mx - mn) / 2;
-            for (int i = tp; i < vertices.size(); i += 3) {
-                vertices[i] -= mid;
+                triangle_indices.push_back(get_vertex_id(idx.vertex_index, idx.normal_index));
             }
         }
 
@@ -352,10 +368,10 @@ private:
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(triangle_indices[0]) * triangle_indices.size(), triangle_indices.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
         glEnableVertexAttribArray(0);
-        //glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
-        //glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
@@ -366,17 +382,22 @@ protected:
         shader.use();
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
         shader.set_uniform("u_tex", int(0));
-        texture.bind();
+        shader.set_uniformv("u_color", glm::vec4 {0.8f, 0.8f, 0.f, 1.0f});
+        shader.set_uniformv("u_camera", camera);
+        shader.set_uniform("u_reflect", u_reflect);
+        shader.set_uniform("u_refract", u_refract);
+        shader.set_uniform("u_refract_coeff", u_refract_coeff);
+        skybox.bind();
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, num_triangles * 3, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
 
-        texture.unbind();
+        skybox.unbind();
     }
 
 public:
-    ObjModel(const char* filename) {
+    ObjModel(const char* filename, CubemapTexture& skybox): skybox(skybox) {
         std::string err;
         bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename);
         
@@ -389,6 +410,16 @@ public:
         }
 
         init_opengl_objects();
+    }
+
+    void set_camera(glm::vec3 camera) {
+        this->camera = camera;
+    }
+
+    void set_light(float u_reflect, float u_refract, float u_refract_coeff) {
+        this->u_reflect = u_reflect;
+        this->u_refract = u_refract;
+        this->u_refract_coeff = u_refract_coeff;
     }
 };
 
@@ -455,10 +486,8 @@ protected:
     }
 };
 
-
 int main(int, char **) {
     OpenGL opengl("Task2");
-    ObjModel model("cube.obj");
     CubemapTexture cubemap(std::vector<std::string> {"skybox/right.jpg",
                                                      "skybox/left.jpg",
                                                      "skybox/top.jpg",
@@ -466,6 +495,7 @@ int main(int, char **) {
                                                      "skybox/front.jpg",
                                                      "skybox/back.jpg"});
 
+    ObjModel model("piper_pa18.obj", cubemap);
     Skybox skybox(cubemap);
 
     double ang_xz = 0, ang_y = 0, distance = 6;
@@ -493,7 +523,7 @@ int main(int, char **) {
         auto oldy = mouse_y;
         opengl.get_mouse_coordinates(mouse_x, mouse_y);
 
-        double factor = 2000 / std::min(opengl.get_width(), opengl.get_height());
+        double factor = 2000 / std::max(1, std::min(opengl.get_width(), opengl.get_height()));
 
         ang_xz -= factor * (mouse_x - oldx);
         ang_y += factor * (mouse_y - oldy);
@@ -508,20 +538,45 @@ int main(int, char **) {
         distance = std::max(distance, 3.);
     });
 
+    float u_reflect = 0.4, u_refract = 0.2, u_refract_coeff = 0.7;
+
     opengl.main_loop([&]() {
         process_drag();
 
-        auto view = glm::translate<float>(glm::vec3 {0, 0, -distance})
-                * glm::rotate<float>(glm::mat4(1), -ang_xz, glm::vec3 {0, 1, 0})
-                * glm::rotate<float>(glm::mat4(1), -ang_y, glm::vec3 {1, 0, 0});
+        auto camera = glm::rotate<float>(glm::rotate<float>(glm::vec3 {0, 0, distance}, ang_y, glm::vec3 {1, 0, 0}),
+                                         ang_xz, glm::vec3 {0, 1, 0});
+
+        auto view = glm::lookAt(camera, glm::vec3 {0,0,0}, glm::vec3 {0, 1, 0} + camera * (camera * glm::vec3 {0,1,0}));
         auto projection = glm::perspective<float>(90, opengl.width_over_height(), 0.1, 100);
         auto vp = projection * view;
 
-        glDisable(GL_DEPTH_TEST);
-        skybox.render(vp);
-        glEnable(GL_DEPTH_TEST);
+        //glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        skybox.render(projection * glm::translate(view, camera));
+        glDepthMask(GL_TRUE);
+        //glEnable(GL_DEPTH_TEST);
 
+        model.set_camera(camera);
         model.render(vp);
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::Begin("Lights");
+        ImGui::SliderFloat("reflect", &u_reflect, 0, 1);
+        ImGui::SliderFloat("refract", &u_refract, 0, 1);
+        ImGui::SliderFloat("refract_coeff", &u_refract_coeff, 0, 2);
+        ImGui::End();
+
+        // Generate gui render commands
+        ImGui::Render();
+
+        // Execute gui render commands using OpenGL backend
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        u_refract = std::min(u_refract, 1 - u_reflect);
+        model.set_light(u_reflect, u_refract, u_refract_coeff);
     });
 
     return 0;

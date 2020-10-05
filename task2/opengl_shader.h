@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include <glm/glm.hpp>
 #include <GL/glew.h>
 
 class shader_t
@@ -15,7 +16,8 @@ public:
    template<typename T> void set_uniform(const std::string& name, T val);
    template<typename T> void set_uniform(const std::string& name, T val1, T val2);
    template<typename T> void set_uniform(const std::string& name, T val1, T val2, T val3);
-
+   template<typename T> void set_uniform(const std::string& name, T val1, T val2, T val3, T val4);
+   template <int C> void set_uniformv(const std::string& name, glm::vec<C, float, glm::defaultp>);
 private:
    void check_compile_error();
    void check_linking_error();

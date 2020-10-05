@@ -88,8 +88,21 @@ void shader_t::set_uniform<float>(const std::string& name, float val1, float val
 }
 
 template<>
+void shader_t::set_uniform<float>(const std::string& name, float val1, float val2, float val3, float val4) {
+    glUniform4f(glGetUniformLocation(program_id_, name.c_str()), val1, val2, val3, val4);
+}
+
+template<>
 void shader_t::set_uniform<float*>(const std::string& name, float* val) {
-   glUniformMatrix4fv(glGetUniformLocation(program_id_, name.c_str()), 1, GL_FALSE, val);
+    glUniformMatrix4fv(glGetUniformLocation(program_id_, name.c_str()), 1, GL_FALSE, val);
+}
+
+template <> void shader_t::set_uniformv(const std::string& name, glm::vec3 vec) {
+    set_uniform(name, vec.x, vec.y, vec.z);
+}
+
+template <> void shader_t::set_uniformv(const std::string& name, glm::vec4 vec) {
+    set_uniform(name, vec.x, vec.y, vec.z, vec.w);
 }
 
 void shader_t::check_compile_error() {

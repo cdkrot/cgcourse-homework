@@ -1,15 +1,19 @@
 #version 330 core
 
-struct vx_output_t {
+out vec4 o_frag_color;
+
+struct vx_output_t
+{
     vec3 color;
 };
 
 in vx_output_t v_out;
-uniform sampler2D u_tex;
-out vec4 o_frag_color;
 
-void main() {
-    //vec3 texture = texture(u_tex, v_out.color.xy).rgb;
-    //o_frag_color = vec4(texture,1.0);
-    o_frag_color = vec4(1.0, 0.0, 0.0, 0.5);
+uniform vec3 u_color;
+uniform float u_time;
+
+void main()
+{
+    float animation = 0.5 + sin(5 * u_time) * sin(5 * u_time);
+    o_frag_color = vec4(animation * v_out.color * u_color,1.0);
 }
