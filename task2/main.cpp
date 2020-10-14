@@ -305,7 +305,7 @@ private:
     Texture texture = std::move(Texture("checkers.jpg"));
     CubemapTexture skybox;
     glm::vec3 camera;
-    float u_reflect = 0.4, u_refract = 0.2, u_refract_coeff = 0.7;
+    float u_base_color_weight = 0.2, u_refract_coeff = 1.5;
 
     GLuint vbo, vao, ebo;
     int num_triangles = 0;
@@ -384,8 +384,7 @@ protected:
         shader.set_uniform("u_tex", int(0));
         shader.set_uniformv("u_color", glm::vec4 {0.8f, 0.8f, 0.f, 1.0f});
         shader.set_uniformv("u_camera", camera);
-        shader.set_uniform("u_reflect", u_reflect);
-        shader.set_uniform("u_refract", u_refract);
+        shader.set_uniform("u_base_color_weight", u_base_color_weight);
         shader.set_uniform("u_refract_coeff", u_refract_coeff);
         skybox.bind();
 
@@ -416,9 +415,8 @@ public:
         this->camera = camera;
     }
 
-    void set_light(float u_reflect, float u_refract, float u_refract_coeff) {
-        this->u_reflect = u_reflect;
-        this->u_refract = u_refract;
+    void set_light(float u_base_color_weight, float u_refract_coeff) {
+        this->u_base_color_weight = u_base_color_weight;
         this->u_refract_coeff = u_refract_coeff;
     }
 };
@@ -538,8 +536,9 @@ int main(int, char **) {
         distance = std::max(distance, 3.);
     });
 
-    float u_reflect = 0.4, u_refract = 0.2, u_refract_coeff = 0.7;
-
+    float u_base_color_weight = 0.2;
+    float u_refract_coeff = 1.5;
+    
     opengl.main_loop([&]() {
         process_drag();
 
@@ -552,7 +551,7 @@ int main(int, char **) {
 
         //glDisable(GL_DEPTH_TEST);
         glDepthMask(GL_FALSE);
-        skybox.render(projection * glm::translate(view, camera));
+        skybox.render(projection * glm::lookAt(glm::vec3 {0,0,0}, -camera, glm::vec3 {0, 1, 0} + camera * (camera * glm::vec3 {0,1,0})));
         glDepthMask(GL_TRUE);
         //glEnable(GL_DEPTH_TEST);
 
@@ -564,9 +563,8 @@ int main(int, char **) {
         ImGui::NewFrame();
 
         ImGui::Begin("Lights");
-        ImGui::SliderFloat("reflect", &u_reflect, 0, 1);
-        ImGui::SliderFloat("refract", &u_refract, 0, 1);
-        ImGui::SliderFloat("refract_coeff", &u_refract_coeff, 0, 2);
+        ImGui::SliderFloat("basecolor", &u_base_color_weight, 0, 1);
+        ImGui::SliderFloat("refract_coeff", &u_refract_coeff, 1, 2);
         ImGui::End();
 
         // Generate gui render commands
@@ -575,8 +573,7 @@ int main(int, char **) {
         // Execute gui render commands using OpenGL backend
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        u_refract = std::min(u_refract, 1 - u_reflect);
-        model.set_light(u_reflect, u_refract, u_refract_coeff);
+        model.set_light(u_base_color_weight, u_refract_coeff);
     });
 
     return 0;
