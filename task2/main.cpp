@@ -306,7 +306,8 @@ private:
     CubemapTexture skybox;
     glm::vec3 camera;
     float u_base_color_weight = 0.2, u_refract_coeff = 1.5;
-
+    int u_is_schlick;
+    
     GLuint vbo, vao, ebo;
     int num_triangles = 0;
 
@@ -386,6 +387,7 @@ protected:
         shader.set_uniformv("u_camera", camera);
         shader.set_uniform("u_base_color_weight", u_base_color_weight);
         shader.set_uniform("u_refract_coeff", u_refract_coeff);
+        shader.set_uniform("u_is_schlick", u_is_schlick);
         skybox.bind();
 
         glBindVertexArray(vao);
@@ -415,10 +417,16 @@ public:
         this->camera = camera;
     }
 
-    void set_light(float u_base_color_weight, float u_refract_coeff) {
+    void set_light(float u_base_color_weight, float u_refract_coeff, int u_is_schlick) {
         this->u_base_color_weight = u_base_color_weight;
         this->u_refract_coeff = u_refract_coeff;
+        this->u_is_schlick = u_is_schlick;
     }
+
+    glm::mat4 model_matrix() {
+        return glm::scale(glm::mat4(1), glm::vec3(1.0f));
+    }
+
 };
 
 class Skybox: public ModelBase {
@@ -493,6 +501,7 @@ int main(int, char **) {
                                                      "skybox/front.jpg",
                                                      "skybox/back.jpg"});
 
+    //ObjModel model("ORIGAMI_Chat_Free.obj", cubemap);
     ObjModel model("piper_pa18.obj", cubemap);
     Skybox skybox(cubemap);
 
@@ -538,6 +547,7 @@ int main(int, char **) {
 
     float u_base_color_weight = 0.2;
     float u_refract_coeff = 1.5;
+    int u_is_schlick = 0;
     
     opengl.main_loop([&]() {
         process_drag();
@@ -565,6 +575,7 @@ int main(int, char **) {
         ImGui::Begin("Lights");
         ImGui::SliderFloat("basecolor", &u_base_color_weight, 0, 1);
         ImGui::SliderFloat("refract_coeff", &u_refract_coeff, 1, 2);
+        ImGui::SliderInt("is_schlick", &u_is_schlick, 0, 1);
         ImGui::End();
 
         // Generate gui render commands
@@ -573,7 +584,7 @@ int main(int, char **) {
         // Execute gui render commands using OpenGL backend
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        model.set_light(u_base_color_weight, u_refract_coeff);
+        model.set_light(u_base_color_weight, u_refract_coeff, u_is_schlick);
     });
 
     return 0;
