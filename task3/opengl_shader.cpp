@@ -31,9 +31,6 @@ shader_t::shader_t(const std::string& vertex_code_fname, const std::string& frag
    link();
 }
 
-shader_t::~shader_t() {
-}
-
 void shader_t::compile(const std::string& vertex_code, const std::string& fragment_code)
 {
    const char* vcode = vertex_code.c_str();

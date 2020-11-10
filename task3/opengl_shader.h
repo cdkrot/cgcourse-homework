@@ -10,7 +10,8 @@ class shader_t
 {
 public:
    shader_t(const std::string& vertex_code_fname, const std::string& fragment_code_fname);
-   ~shader_t();
+   shader_t() = default;
+   ~shader_t() = default;
 
    void use();
    template<typename T> void set_uniform(const std::string& name, T val);
