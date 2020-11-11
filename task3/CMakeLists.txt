@@ -22,18 +22,21 @@ find_package(glew CONFIG)
 find_package(fmt CONFIG)
 find_package(glm CONFIG)
 find_package(stb CONFIG)
-find_package(tinyobjloader CONFIG)
 
 add_executable( task3
-                main.cpp
-                opengl_shader.cpp
-                opengl_shader.h
+                src/main.cpp
+                src/opengl_shader.cpp
+                src/opengl_shader.h
+                src/miniconfig.cpp
+                src/miniconfig.h
+                src/stb_image_impl.cpp
+                src/external/tiny_obj_loader.h
+                src/external/tiny_obj_loader_impl.cpp
                 bindings/imgui_impl_glfw.cpp
                 bindings/imgui_impl_opengl3.cpp
                 bindings/imgui_impl_glfw.h
-                bindings/imgui_impl_opengl3.h
-                assets/simple-shader.vs
-                assets/simple-shader.fs )
+                bindings/imgui_impl_opengl3.h )
 
+target_include_directories(task3 PRIVATE . src src/external)
 target_compile_definitions(task3 PUBLIC IMGUI_IMPL_OPENGL_LOADER_GLEW)
-target_link_libraries(task3 imgui::imgui GLEW::glew_s glfw::glfw fmt::fmt glm::glm stb::stb tinyobjloader::tinyobjloader)
+target_link_libraries(task3 imgui::imgui GLEW::glew_s glfw::glfw fmt::fmt glm::glm stb::stb)

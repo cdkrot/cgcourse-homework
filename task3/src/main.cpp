@@ -19,16 +19,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-// stb image lib
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-
-// tinyobjloader lib
-#define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
-
 #include "opengl_shader.h"
-#include "miniconfig.cpp"
+#include "miniconfig.h"
 
 #define SZ(obj) int((obj).size())
 
@@ -327,11 +321,12 @@ private:
         std::vector<float> vertices;
         std::vector<unsigned int> triangle_indices;
 
-        std::map<std::pair<int, int>, int> idmap;
-        auto get_vertex_id = [&](int vertex, int normal) {
-            if (not idmap.count(std::make_pair(vertex, normal))) {
+        std::map<std::tuple<int, int, int>, int> idmap;
+        auto get_vertex_id = [&](int vertex, int normal, int material) {
+            auto desc = std::make_tuple(vertex, normal, material);
+            if (not idmap.count(desc)) {
                 int new_id = idmap.size();
-                idmap[std::make_pair(vertex, normal)] = new_id;
+                idmap[desc] = new_id;
 
                 vertices.push_back(attrib.vertices[3 * vertex]);
                 vertices.push_back(attrib.vertices[3 * vertex + 1]);
@@ -340,9 +335,13 @@ private:
                 vertices.push_back(attrib.normals[3 * normal]);
                 vertices.push_back(attrib.normals[3 * normal + 1]);
                 vertices.push_back(attrib.normals[3 * normal + 2]);
+
+                vertices.push_back(materials[material].diffuse[0]);
+                vertices.push_back(materials[material].diffuse[1]);
+                vertices.push_back(materials[material].diffuse[2]);
             }
 
-            return idmap[std::make_pair(vertex, normal)];
+            return idmap[desc];
         };
 
         for (int s = 0; s < shapes.size(); ++s) {
@@ -350,7 +349,7 @@ private:
 
             for (int v = 0; v < shapes[s].mesh.indices.size(); ++v) {
                 tinyobj::index_t idx = shapes[s].mesh.indices[v];
-                triangle_indices.push_back(get_vertex_id(idx.vertex_index, idx.normal_index));
+                triangle_indices.push_back(get_vertex_id(idx.vertex_index, idx.normal_index, shapes[s].mesh.material_ids[v / 3]));
             }
         }
 
@@ -367,10 +366,12 @@ private:
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(triangle_indices[0]) * triangle_indices.size(), triangle_indices.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)(3 * sizeof(float)));
         glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void *)(6 * sizeof(float)));
+        glEnableVertexAttribArray(2);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
@@ -393,11 +394,15 @@ protected:
     
 public:
     ObjModel(const char* filename) {
+        std::string warn;
         std::string err;
-        bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename);
-        
+        bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename);
+
         if (!err.empty())
             fprintf(stderr, "loading %s, error: %s\n", filename, err.c_str());
+
+        if (!warn.empty())
+            fprintf(stderr, "loading %s, warn: %s\n", filename, warn.c_str());
         
         if (!ret) {
             fprintf(stderr, "failed to load %s\n", filename);
