@@ -417,6 +417,10 @@ public:
         offset = offset_new;
     }
 
+    glm::vec3 get_offset() const {
+        return offset;
+    }
+    
     void set_scale(float scale_new) {
         scale = scale_new;
     }
@@ -429,9 +433,6 @@ public:
 class HeightMap: public ModelBase {
 private:
     shader_t shader;
-
-    float u_base_color_weight = 0.2, u_refract_coeff = 1.5;
-    int u_is_schlick;
     
     GLuint vbo, vao, ebo;
     int num_triangles = 0;
@@ -441,6 +442,7 @@ private:
     const double vscale = config.get_float("ground_vertical_scale");
     
     Camera& camera;
+    ObjModel& lighthouse;
     
 protected:
     virtual void render_mvp(glm::mat4 mvp) {
@@ -448,21 +450,25 @@ protected:
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
         shader.set_uniformv("u_color", config.get_vec4("u_color"));
         shader.set_uniformv("u_sun_direction", glm::normalize(config.get_vec("u_sun_direction")));
-        shader.set_uniform("u_light_ambient", config.get_float("u_light_ambient"));
-        shader.set_uniform("u_light_diffuse", config.get_float("u_light_diffuse"));
-        shader.set_uniform("u_light_wat_diff", config.get_float("u_light_wat_diff"));
-        shader.set_uniform("u_light_wat_spec", config.get_float("u_light_wat_spec"));
+        shader.set_uniformv("u_light", config.get_vec("u_light"));
+        shader.set_uniformv("u_light_wat", config.get_vec("u_light_wat"));
         shader.set_uniformv("u_camera", camera.position);
         shader.set_uniform("u_water_level", config.get_float("u_water_level"));
         shader.set_uniformv("u_water_color", config.get_vec4("u_water_color"));
 
+        glm::vec3 flashdir = config.get_vec("lighthouse_flash_dir");
+        flashdir = glm::rotateY(flashdir, clock() / (CLOCKS_PER_SEC * 2.0f) * glm::pi<float>() * config.get_float("lighthouse_flash_speed"));
+        shader.set_uniformv("u_lighthouse_flash_dir", glm::normalize(flashdir));
+        shader.set_uniformv("u_lighthouse_location", lighthouse.get_offset() +
+                            glm::vec3 {0, config.get_float("lighthouse_flash_y_adjust"), 0});
+        
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, num_triangles * 3, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
     }
 
 public:
-    HeightMap(const char* path, Camera& camera): camera(camera) {
+    HeightMap(const char* path, Camera& camera, ObjModel& lighthouse): camera(camera), lighthouse(lighthouse) {
         std::vector<float> vertices;
         std::vector<unsigned int> triangle_indices;
         auto add_triangle = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 n) {            
@@ -533,12 +539,6 @@ public:
         reload_shader();
     }
 
-    void set_light(float u_base_color_weight, float u_refract_coeff, int u_is_schlick) {
-        this->u_base_color_weight = u_base_color_weight;
-        this->u_refract_coeff = u_refract_coeff;
-        this->u_is_schlick = u_is_schlick;
-    }
-
     double get_height(double x, double y) {
         using std::min;
         using std::max;
@@ -565,12 +565,12 @@ public:
 int main(int, char **) {
     OpenGL opengl("Task3");
     Camera camera;
-    HeightMap heightmap("heightmap.png", camera);
     ObjModel beacon("lighthouse/lighthouse.obj");
+    HeightMap heightmap("heightmap.png", camera, beacon);
     
     bool is_dragged = false;
-    double mouse_x, mouse_y;
-
+    double mouse_x, mouse_y;    
+    
     auto post_cfg_reload = [&]() {
         auto x = config.get_float("lighthouse_x");
         auto z = config.get_float("lighthouse_z");
