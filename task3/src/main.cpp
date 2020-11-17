@@ -38,6 +38,9 @@ unsigned long millis() {
     return millis_now - millis0;
 }
 
+GLuint shadowmap_tex; // messy, create a subclass for that later
+glm::mat4 last_light_matrix;  // messy, create a subclass for that later
+
 class OpenGL {
 private:
     GLFWwindow* window;
@@ -308,6 +311,8 @@ private:
 
     glm::vec3 offset = glm::vec3 {0,0,0};
     float scale = 1.0;
+
+    Camera& camera;
     
     void init_opengl_objects() {
         for (int tp = 0; tp < 3; ++tp) {
@@ -385,13 +390,24 @@ private:
     
 protected:
     virtual void render_mvp(glm::mat4 mvp) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shadowmap_tex);
+        
         shader.use();
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
-        shader.set_uniformv("u_color", glm::vec4 {0.8f, 0.8f, 0.f, 1.0f});
+        shader.set_uniformv("u_color", config.get_vec4("u_color_beacon"));
+        shader.set_uniformv("u_sun_direction", glm::normalize(config.get_vec("u_sun_direction")));
+        shader.set_uniformv("u_light", config.get_vec("u_light_beacon"));
+        shader.set_uniformv("u_camera", camera.position);
+        shader.set_uniform("u_lightmat", glm::value_ptr(last_light_matrix));
+        shader.set_uniform("u_shadowmap", 1);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, num_triangles * 3, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
+
+        glActiveTexture(GL_TEXTURE1);        
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 
     virtual glm::mat4 model_matrix() {
@@ -399,7 +415,7 @@ protected:
     }
     
 public:
-    ObjModel(const char* filename) {
+    ObjModel(const char* filename, Camera& camera): camera(camera) {
         std::string warn;
         std::string err;
         bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename);
@@ -454,6 +470,8 @@ private:
 protected:
     virtual void render_mvp(glm::mat4 mvp) {
         flashtexture.bind();
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shadowmap_tex);
         
         shader.use();
         shader.set_uniform("u_flashtex", 0);
@@ -465,7 +483,9 @@ protected:
         shader.set_uniformv("u_camera", camera.position);
         shader.set_uniform("u_water_level", config.get_float("u_water_level"));
         shader.set_uniformv("u_water_color", config.get_vec4("u_water_color"));
-
+        shader.set_uniform("u_lightmat", glm::value_ptr(last_light_matrix));
+        shader.set_uniform("u_shadowmap", 1);
+        
         glm::vec3 flashdir = config.get_vec("lighthouse_flash_dir");
         
         flashdir = glm::rotateY(flashdir, millis() / (1000.f) * (2.0f * glm::pi<float>()) * config.get_float("lighthouse_flash_speed"));
@@ -478,6 +498,8 @@ protected:
         glBindVertexArray(0);
 
         flashtexture.unbind();
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 
 public:
@@ -578,7 +600,7 @@ public:
 int main(int, char **) {
     OpenGL opengl("Task3");
     Camera camera;
-    ObjModel beacon("lighthouse/lighthouse.obj");
+    ObjModel beacon("lighthouse/lighthouse.obj", camera);
     HeightMap heightmap("heightmap.png", camera, beacon);
     
     bool is_dragged = false;
@@ -634,6 +656,29 @@ int main(int, char **) {
     };
 
     float speed = 40;
+
+    auto render = [&](glm::mat4 vp_matrix) {
+        heightmap.render(vp_matrix);
+        beacon.render(vp_matrix);
+    };
+
+    const int shadowmap_size = (int)config.get_float("shadowmap_size");
+    GLuint shadowmap_fbo;
+    glGenFramebuffers(1, &shadowmap_fbo);
+    glGenTextures(1, &shadowmap_tex);
+    glBindTexture(GL_TEXTURE_2D, shadowmap_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 
+                 shadowmap_size, shadowmap_size, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT); 
+    
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowmap_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowmap_tex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
     opengl.main_loop([&]() {
         process_drag();
@@ -655,14 +700,34 @@ int main(int, char **) {
             camera.position += speed * up;
         if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
             camera.position -= speed * up;
-            
+
+        // step1, shadowmap render
+        int shadowmap_debug = (int)config.get_float("shadowmap_debug");
+        glViewport(0, 0, shadowmap_size, shadowmap_size);
+        if (not shadowmap_debug)
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowmap_fbo);
+        glClear(GL_DEPTH_BUFFER_BIT | (shadowmap_debug ? GL_COLOR_BUFFER_BIT : 0));
+
+        glm::vec3 lightsource = camera.position + glm::normalize(config.get_vec("u_sun_direction")) *
+            config.get_float("shadowmap_sun_dist");
+        auto lightview = glm::lookAt(lightsource, camera.position, glm::vec3 {0, 1, 0});
+        auto shadowmap_range = config.get_float("shadowmap_range");
+        auto lightprojection = glm::ortho(-shadowmap_range, +shadowmap_range,
+                                          -shadowmap_range, +shadowmap_range,
+                                          config.get_float("shadowmap_near"),
+                                          config.get_float("shadowmap_far"));
+
+        render(last_light_matrix = lightprojection * lightview);
+        
+        if (shadowmap_debug)
+            return;
+        // step2, normal render
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, opengl.get_width(), opengl.get_height());
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);    
         auto view = glm::lookAt(camera.position, camera.position + forward, up);
         auto projection = glm::perspective<float>(70, opengl.width_over_height(), 10, 100000);
-        auto vp = projection * view;
-
-        heightmap.render(vp);
-
-        beacon.render(vp);
+        render(projection * view);
         
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
