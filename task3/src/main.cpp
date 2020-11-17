@@ -32,6 +32,12 @@ static void glfw_error_callback(int error, const char *description) {
     std::cerr << fmt::format("Glfw Error {}: {}\n", error, description);
 }
 
+unsigned long millis() {
+    static auto millis0 = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);;
+    auto millis_now = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);;
+    return millis_now - millis0;
+}
+
 class OpenGL {
 private:
     GLFWwindow* window;
@@ -443,10 +449,14 @@ private:
     
     Camera& camera;
     ObjModel& lighthouse;
+    Texture flashtexture;
     
 protected:
     virtual void render_mvp(glm::mat4 mvp) {
+        flashtexture.bind();
+        
         shader.use();
+        shader.set_uniform("u_flashtex", 0);
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
         shader.set_uniformv("u_color", config.get_vec4("u_color"));
         shader.set_uniformv("u_sun_direction", glm::normalize(config.get_vec("u_sun_direction")));
@@ -457,7 +467,8 @@ protected:
         shader.set_uniformv("u_water_color", config.get_vec4("u_water_color"));
 
         glm::vec3 flashdir = config.get_vec("lighthouse_flash_dir");
-        flashdir = glm::rotateY(flashdir, clock() / (CLOCKS_PER_SEC * 2.0f) * glm::pi<float>() * config.get_float("lighthouse_flash_speed"));
+        
+        flashdir = glm::rotateY(flashdir, millis() / (1000.f) * (2.0f * glm::pi<float>()) * config.get_float("lighthouse_flash_speed"));
         shader.set_uniformv("u_lighthouse_flash_dir", glm::normalize(flashdir));
         shader.set_uniformv("u_lighthouse_location", lighthouse.get_offset() +
                             glm::vec3 {0, config.get_float("lighthouse_flash_y_adjust"), 0});
@@ -465,10 +476,12 @@ protected:
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, num_triangles * 3, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
+
+        flashtexture.unbind();
     }
 
 public:
-    HeightMap(const char* path, Camera& camera, ObjModel& lighthouse): camera(camera), lighthouse(lighthouse) {
+    HeightMap(const char* path, Camera& camera, ObjModel& lighthouse): camera(camera), lighthouse(lighthouse), flashtexture("checkers.jpg") {
         std::vector<float> vertices;
         std::vector<unsigned int> triangle_indices;
         auto add_triangle = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 n) {            
@@ -662,6 +675,10 @@ int main(int, char **) {
         ImGui::Text("forward");
         ImGui::Text("x=%0.2f, y=%0.2f, z=%0.2f", forward.x, forward.y, forward.z);
         ImGui::SliderFloat("speed", &speed, 0.1, 100, "%0.2f", 2.0f);
+        ImGui::Text("");
+        ImGui::Text("Controls: WASD (forward, left, right, backward)");
+        ImGui::Text("Controls: QZ (up, down)");
+        ImGui::Text("Controls: R (reload cfg and shaders)");
         ImGui::End();
 
         // Generate gui render commands

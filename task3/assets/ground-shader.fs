@@ -16,6 +16,8 @@ uniform vec3 u_camera;
 uniform vec3 u_lighthouse_flash_dir;
 uniform vec3 u_lighthouse_location;
 
+uniform sampler2D u_flashtex;
+
 vec3 get_shininess(vec3 normal, vec3 light_direction, vec3 to_camera) {
     return vec3(1.0, // ambient
                 max(0.f, dot(normal, u_sun_direction)), // diffuse
@@ -31,10 +33,27 @@ vec4 common_main(vec4 source_color, vec3 light_vec) {
     float light_factor = dot(light_vec,
                              get_shininess(normal, u_sun_direction, to_camera));
 
-    if (dot(from_lighthouse, u_lighthouse_flash_dir) >= 0.95)
-        return vec4(source_color.xyz * light_factor, source_color.w) + vec4(0.2,0.2,0.2,0);
-    else
-        return vec4(source_color.xyz * light_factor, source_color.w);
+    vec4 result = vec4(source_color.xyz * light_factor, source_color.w);
+    float threshold = 0.95;
+    if (dot(from_lighthouse, u_lighthouse_flash_dir) >= threshold) {
+        from_lighthouse *= 1.0 / dot(from_lighthouse, u_lighthouse_flash_dir);
+
+        if ((dot(from_lighthouse, u_lighthouse_flash_dir) <= 0.99))
+            return vec4(1,0,0,1);
+        if ((dot(from_lighthouse, u_lighthouse_flash_dir) >= 1.01))
+            return vec4(1,0,0,1);
+
+        
+        vec3 right = normalize(cross(u_lighthouse_flash_dir, vec3(0, 1, 0)));
+        vec3 up = normalize(cross(right, u_lighthouse_flash_dir));
+
+        vec4 flashcolor = texture(u_flashtex, vec2(0.5 * (dot(up, from_lighthouse) + 1),
+                                                   0.5 * (dot(right, from_lighthouse) + 1)));
+
+        result = 0.8 * result + 0.3 * flashcolor;
+    }
+
+    return result;
 }
 
 void main() {
