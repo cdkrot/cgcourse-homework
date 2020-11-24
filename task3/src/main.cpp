@@ -15,6 +15,7 @@
 // Math constant and routines for OpenGL interop
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -36,6 +37,10 @@ unsigned long millis() {
     static auto millis0 = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);;
     auto millis_now = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);;
     return millis_now - millis0;
+}
+
+float seconds() {
+    return millis() / 1000.0f;
 }
 
 GLuint shadowmap_tex; // messy, create a subclass for that later
@@ -452,6 +457,38 @@ public:
     }
 };
 
+class BoatModel: public ObjModel {
+private:
+    float speed = 1;
+    float rot_radius = 100;
+    
+public:
+    BoatModel(const char* filename, Camera& camera): ObjModel(filename, camera) {
+    }
+
+    void set_rot_speed(float speed) {
+        this->speed = speed;
+    }
+
+    void set_rot_radius(float rad) {
+        rot_radius = rad;
+    }
+    
+    virtual glm::mat4 model_matrix() {
+        auto static rotinit = glm::rotate(glm::mat4(1.0f),
+                                          0.5f * glm::pi<float>(),
+                                          glm::vec3 {0,1.0f,0});
+        
+        auto trans = glm::translate(glm::mat4(1.0f), glm::vec3 {rot_radius, 0,0});
+        auto rot = glm::rotate(glm::mat4(1.0f),
+                               seconds() * 2 * glm::pi<float>() * speed,
+                               glm::vec3 {0,1.0f,0});
+        
+        
+        return ObjModel::model_matrix() * rot * trans * rotinit;
+    }
+};
+
 class HeightMap: public ModelBase {
 private:
     shader_t shader;
@@ -488,7 +525,7 @@ protected:
         
         glm::vec3 flashdir = config.get_vec("lighthouse_flash_dir");
         
-        flashdir = glm::rotateY(flashdir, millis() / (1000.f) * (2.0f * glm::pi<float>()) * config.get_float("lighthouse_flash_speed"));
+        flashdir = glm::rotateY(flashdir, seconds() * (2.0f * glm::pi<float>()) * config.get_float("lighthouse_flash_speed"));
         shader.set_uniformv("u_lighthouse_flash_dir", glm::normalize(flashdir));
         shader.set_uniformv("u_lighthouse_location", lighthouse.get_offset() +
                             glm::vec3 {0, config.get_float("lighthouse_flash_y_adjust"), 0});
@@ -601,6 +638,7 @@ int main(int, char **) {
     OpenGL opengl("Task3");
     Camera camera;
     ObjModel beacon("lighthouse/lighthouse.obj", camera);
+    BoatModel boat("boat/Boat.obj", camera);
     HeightMap heightmap("heightmap.png", camera, beacon);
     
     bool is_dragged = false;
@@ -613,8 +651,14 @@ int main(int, char **) {
         beacon.set_offset(glm::vec3 {x, y, z});
         beacon.set_scale(config.get_float("lighthouse_scale"));
 
+        boat.set_offset(config.get_vec("boat_offset"));
+        boat.set_scale(config.get_float("boat_scale"));
+        boat.set_rot_radius(config.get_float("boat_rot_radius"));
+        boat.set_rot_speed(config.get_float("boat_rot_speed"));
+        
         beacon.reload_shader();
         heightmap.reload_shader();
+        boat.reload_shader();
     };
 
     post_cfg_reload();
@@ -655,11 +699,12 @@ int main(int, char **) {
         camera.ang_y = std::max(camera.ang_y, -glm::pi<double>() * 0.35);
     };
 
-    float speed = 40;
+    float speed = 80;
 
     auto render = [&](glm::mat4 vp_matrix) {
         heightmap.render(vp_matrix);
         beacon.render(vp_matrix);
+        boat.render(vp_matrix);
     };
 
     const int shadowmap_size = (int)config.get_float("shadowmap_size");
@@ -739,7 +784,7 @@ int main(int, char **) {
         ImGui::Text("x=%0.2f, y=%0.2f, z=%0.2f", up.x, up.y, up.z);
         ImGui::Text("forward");
         ImGui::Text("x=%0.2f, y=%0.2f, z=%0.2f", forward.x, forward.y, forward.z);
-        ImGui::SliderFloat("speed", &speed, 0.1, 100, "%0.2f", 2.0f);
+        ImGui::SliderFloat("speed", &speed, 1, 1000, "%0.2f", 2.0f);
         ImGui::Text("");
         ImGui::Text("Controls: WASD (forward, left, right, backward)");
         ImGui::Text("Controls: QZ (up, down)");
