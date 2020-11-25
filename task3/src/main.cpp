@@ -401,7 +401,7 @@ protected:
         shader.use();
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
         shader.set_uniformv("u_color", config.get_vec4("u_color_beacon"));
-        shader.set_uniformv("u_sun_direction", glm::normalize(config.get_vec("u_sun_direction")));
+        shader.set_uniformv("u_sun_location", glm::normalize(config.get_vec("u_sun_location")));
         shader.set_uniformv("u_light", config.get_vec("u_light_beacon"));
         shader.set_uniformv("u_camera", camera.position);
         shader.set_uniform("u_lightmat", glm::value_ptr(last_light_matrix));
@@ -514,7 +514,7 @@ protected:
         shader.set_uniform("u_flashtex", 0);
         shader.set_uniform("u_mvp", glm::value_ptr(mvp));
         shader.set_uniformv("u_color", config.get_vec4("u_color"));
-        shader.set_uniformv("u_sun_direction", glm::normalize(config.get_vec("u_sun_direction")));
+        shader.set_uniformv("u_sun_location", glm::normalize(config.get_vec("u_sun_location")));
         shader.set_uniformv("u_light", config.get_vec("u_light"));
         shader.set_uniformv("u_light_wat", config.get_vec("u_light_wat"));
         shader.set_uniformv("u_camera", camera.position);
@@ -753,12 +753,11 @@ int main(int, char **) {
             glBindFramebuffer(GL_FRAMEBUFFER, shadowmap_fbo);
         glClear(GL_DEPTH_BUFFER_BIT | (shadowmap_debug ? GL_COLOR_BUFFER_BIT : 0));
 
-        glm::vec3 lightsource = camera.position + glm::normalize(config.get_vec("u_sun_direction")) *
-            config.get_float("shadowmap_sun_dist");
-        auto lightview = glm::lookAt(lightsource, camera.position, glm::vec3 {0, 1, 0});
+        glm::vec3 light_base = config.get_vec("sun_view_to");
+        glm::vec3 lightsource = config.get_vec("u_sun_location");
+        auto lightview = glm::lookAt(lightsource, light_base, glm::vec3{0,1,0});
         auto shadowmap_range = config.get_float("shadowmap_range");
-        auto lightprojection = glm::ortho(-shadowmap_range, +shadowmap_range,
-                                          -shadowmap_range, +shadowmap_range,
+        auto lightprojection = glm::perspective<float>(90, 1.0,
                                           config.get_float("shadowmap_near"),
                                           config.get_float("shadowmap_far"));
 
@@ -771,7 +770,9 @@ int main(int, char **) {
         glViewport(0, 0, opengl.get_width(), opengl.get_height());
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);    
         auto view = glm::lookAt(camera.position, camera.position + forward, up);
-        auto projection = glm::perspective<float>(70, opengl.width_over_height(), 10, 100000);
+        auto projection = glm::perspective<float>(70, opengl.width_over_height(),
+                                                  config.get_float("clip_near"),
+                                                  config.get_float("clip_far"));
         render(projection * view);
         
         ImGui_ImplOpenGL3_NewFrame();

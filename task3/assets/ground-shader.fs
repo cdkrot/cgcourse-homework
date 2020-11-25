@@ -10,7 +10,7 @@ uniform vec4 u_water_color;
 //#define u_water_color vec4(0.1, 0.3, 1.0, 1.0)
 
 uniform float u_water_level;
-uniform vec3 u_sun_direction;
+uniform vec3 u_sun_location;
 uniform float u_light_ambient;
 uniform vec3 u_light;
 uniform vec3 u_light_wat;
@@ -40,9 +40,10 @@ vec4 common_main(vec4 source_color, vec3 light_vec, bool shadow) {
     
     vec3 normal = normalize(normal_);
     vec3 to_camera = normalize(u_camera - coordinates);
-        
+    vec3 to_sun = normalize(u_sun_location - coordinates);
+    
     float light_factor = dot(light_vec,
-                             get_shininess(normal, u_sun_direction, to_camera, shadow));
+                             get_shininess(normal, to_sun, to_camera, shadow));
 
     vec4 result = vec4(source_color.xyz * light_factor, source_color.w);
     float threshold = 0.95;
@@ -75,9 +76,9 @@ void main() {
     //o_frag_color = vec4(vec3(texture(u_shadowmap, shadowmap_proj.xy).r), 1);
     //return;
     bool shadow = false;
-    if (0 <= shadowmap_proj.x && 0 <= shadowmap_proj.y && shadowmap_proj.x <= 1
-        && shadowmap_proj.y <= 1 &&
-        shadowmap_proj.z > texture(u_shadowmap, shadowmap_proj.xy).r + 0.03) {
+    if (0.01 <= shadowmap_proj.x && 0.01 <= shadowmap_proj.y && shadowmap_proj.x <= 0.99
+        && shadowmap_proj.y <= 0.99 &&
+        shadowmap_proj.z > 0.000001 + texture(u_shadowmap, shadowmap_proj.xy).r) {
         shadow = true;
     }
         
